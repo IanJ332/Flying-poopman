@@ -1,2 +1,4 @@
-Guest,4
-IAN,7
+Guest,2
+IAN,1
+I23,1
+highest_score:1

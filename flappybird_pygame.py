@@ -38,16 +38,12 @@ def display_text(text, x, y, color=BLACK, font_size=36, center=True):
     text_rect = rendered_text.get_rect(center=(x, y) if center else (x, y))
     screen.blit(rendered_text, text_rect)
 
-def load_players():
-    if not os.path.exists(PLAYER_FILE):
-        return {}
-    with open(PLAYER_FILE, "r") as file:
-        return {line.split(",")[0]: int(line.split(",")[1]) for line in file}
-
-def save_players(players):
+def save_players(players, highest_score=None):
     with open(PLAYER_FILE, "w") as file:
         for name, score in players.items():
             file.write(f"{name},{score}\n")
+        if highest_score is not None:  # 如果提供了最高分，写入文件
+            file.write(f"highest_score:{highest_score}\n")
 
 def get_new_username(players):
     count = 1
@@ -74,10 +70,25 @@ def check_collision(circle_x, circle_y, circle_radius, rect_x, rect_y, rect_widt
     # 如果距离小于等于小鸟半径，则发生碰撞
     return distance <= circle_radius
 
+def load_players():
+    if not os.path.exists(PLAYER_FILE):
+        return {}, 0  # 如果文件不存在，返回空的玩家字典和最高分0
+    with open(PLAYER_FILE, "r") as file:
+        lines = file.readlines()
+        players = {}
+        highest_score = 0
+        for line in lines:
+            if line.startswith("highest_score:"):
+                highest_score = int(line.strip().split(":")[1])
+            else:
+                name, score = line.strip().split(",")
+                players[name] = int(score)
+        return players, highest_score
+
 # Welcome Screen
 def welcome_screen(players, selected_player=None):
     index = 0
-    options = ["Start", "Rank", "New Character", "Exit"]
+    options = ["Start", "Select Character", "Rank", "New Character", "Exit"]
 
     # 如果players中没有玩家，自动添加一个Guest
     if not selected_player:
@@ -105,6 +116,8 @@ def welcome_screen(players, selected_player=None):
                 if event.key == pygame.K_RETURN:
                     if options[index] == "Start":
                         return selected_player  # 返回当前选中的玩家
+                    elif options[index] == "Select Character":
+                        selected_player = select_character_screen(players)
                     elif options[index] == "Rank":
                         show_rank(players)
                     elif options[index] == "New Character":
@@ -114,6 +127,36 @@ def welcome_screen(players, selected_player=None):
                     elif options[index] == "Exit":
                         pygame.quit()
                         sys.exit()
+
+def select_character_screen(players):
+    index = 0
+    existing_players = list(players.keys())
+
+    while True:
+        screen.fill(WHITE)
+        display_text("Select Your Character", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 5, font_size=36)
+
+        for i, player in enumerate(existing_players):
+            color = GREEN if i == index else BLACK
+            display_text(player, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + i * 40, color=color, font_size=32)
+
+        display_text("Press ENTER to Select, ESC to Return", SCREEN_WIDTH // 2, SCREEN_HEIGHT - 50, font_size=24)
+
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP:
+                    index = (index - 1) % len(existing_players)
+                if event.key == pygame.K_DOWN:
+                    index = (index + 1) % len(existing_players)
+                if event.key == pygame.K_RETURN:
+                    return existing_players[index]  # 返回选中的玩家名字
+                if event.key == pygame.K_ESCAPE:
+                    return None  # 取消选择
 
 # Show Rank
 def show_rank(players):
@@ -153,40 +196,41 @@ def input_new_character(players):
 
 
 # 游戏结束界面
-def game_over_screen(score, high_score, bird_y, pipes, bird_x=100):
+def game_over_screen(score, highest_score, bird_y, pipes, bird_x=100):
+    is_global_high = score > highest_score
     while True:
-        # 重新绘制最后一帧游戏画面
         screen.fill(BLUE)
-        pygame.draw.circle(screen, YELLOW, (bird_x, int(bird_y)), BIRD_RADIUS)  # 绘制小鸟
+        pygame.draw.circle(screen, YELLOW, (bird_x, int(bird_y)), BIRD_RADIUS)
         for pipe in pipes:
-            pygame.draw.rect(screen, GREEN, (pipe['x'], 0, PIPE_WIDTH, pipe['top_height']))  # 上方管道
-            pygame.draw.rect(screen, GREEN, (pipe['x'], pipe['top_height'] + GAP_HEIGHT, PIPE_WIDTH, SCREEN_HEIGHT))  # 下方管道
+            pygame.draw.rect(screen, GREEN, (pipe['x'], 0, PIPE_WIDTH, pipe['top_height']))
+            pygame.draw.rect(screen, GREEN, (pipe['x'], pipe['top_height'] + GAP_HEIGHT, PIPE_WIDTH, SCREEN_HEIGHT))
 
-        # 显示 Game Over 文本
+        # 显示游戏结束和分数
         display_text("Game Over!", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 3, font_size=48)
         display_text(f"Your Score: {score}", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-        if score > high_score:
-            display_text("Congratulations! New High Score!", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 40, GREEN)
+
+        # 显示全局最高分祝贺信息
+        if is_global_high:
+            display_text("Congratulations! New Global High Score!", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 3 - 50, (0, 191, 255), font_size=32)
+
         display_text("Press ENTER to return to Menu", SCREEN_WIDTH // 2, SCREEN_HEIGHT - 60, font_size=28)
 
         pygame.display.flip()
-
-        # 等待用户输入
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:  # 按下回车键返回主菜单
-                    return
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
+                return
 
 # Main Game Logic
-def main_game(username, players):
+def main_game(username, players, highest_score):
     bird_x, bird_y = 100, SCREEN_HEIGHT // 2
     bird_velocity, score = 0, 0
     pipes = [{'x': SCREEN_WIDTH, 'top_height': random.randint(100, 400)}]
 
     while True:
+        # 事件处理
         for e in pygame.event.get():
             if e.type == pygame.QUIT:
                 pygame.quit()
@@ -194,57 +238,58 @@ def main_game(username, players):
             if e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE:
                 bird_velocity = FLAP_STRENGTH
 
-        # 重力与移动
+        # 更新逻辑（重力、管道等）
         bird_velocity += GRAVITY
         bird_y += bird_velocity
 
-        # 管道逻辑
         for pipe in pipes:
             pipe['x'] -= PIPE_SPEED
 
-        # 确保生成新管道
+        # 新管道生成
         if pipes[-1]['x'] < SCREEN_WIDTH - 200:
             pipes.append({'x': SCREEN_WIDTH, 'top_height': random.randint(100, 400)})
-
-        # 移除超出屏幕的管道
         pipes = [p for p in pipes if p['x'] > -PIPE_WIDTH]
-
-        # 更新分数逻辑
-        for pipe in pipes:
-            if pipe['x'] + PIPE_WIDTH < bird_x and not pipe.get('scored', False):
-                score += 1
-                pipe['scored'] = True
 
         # 碰撞检测
         for pipe in pipes:
             if check_collision(bird_x, bird_y, BIRD_RADIUS, pipe['x'], 0, PIPE_WIDTH, pipe['top_height']) or \
                     check_collision(bird_x, bird_y, BIRD_RADIUS, pipe['x'], pipe['top_height'] + GAP_HEIGHT, PIPE_WIDTH,
                                     SCREEN_HEIGHT):
-                game_over_screen(score, players.get(username, 0), bird_y, pipes, bird_x)  # 调用结束画面
-                return score
-        if bird_y < 0 or bird_y > SCREEN_HEIGHT:
-            game_over_screen(score, players.get(username, 0), bird_y, pipes, bird_x)
-            return score
+                game_over_screen(score, highest_score, bird_y, pipes, bird_x)  # 调用 Game Over 界面
+                return score, highest_score
 
-        # 画面更新
+        if bird_y < 0 or bird_y > SCREEN_HEIGHT:
+            game_over_screen(score, highest_score, bird_y, pipes, bird_x)  # 调用 Game Over 界面
+            return score, highest_score
+
+        # 更新分数逻辑
+        for pipe in pipes:
+            if pipe['x'] + PIPE_WIDTH < bird_x and not pipe.get('scored', False):
+                score += 1
+                pipe['scored'] = True
+                if score > highest_score:  # 更新全局最高分
+                    highest_score = score
+
+        # 绘制画面
         screen.fill(BLUE)
         pygame.draw.circle(screen, YELLOW, (bird_x, int(bird_y)), BIRD_RADIUS)
         for pipe in pipes:
             pygame.draw.rect(screen, GREEN, (pipe['x'], 0, PIPE_WIDTH, pipe['top_height']))
             pygame.draw.rect(screen, GREEN, (pipe['x'], pipe['top_height'] + GAP_HEIGHT, PIPE_WIDTH, SCREEN_HEIGHT))
-        display_text(f"Score: {score}", 20, 20, WHITE, 28, False)
-        display_text(f"Player: {username}", SCREEN_WIDTH - 150, 20, WHITE, 28, False)
+        display_text(f"Score: {score}", 70, 30, WHITE, 28, False)
+        display_text(f"Player: {username}", SCREEN_WIDTH - 70, 30, WHITE, 28, False)
         pygame.display.flip()
         clock.tick(FPS)
 
 # Run Game
 if __name__ == "__main__":
-    players = load_players()
-    current_player = welcome_screen(players)  # 当前玩家
+    players, highest_score = load_players()
+    current_player = welcome_screen(players)
     while True:
-        score = main_game(current_player, players)  # 只处理 main_game 返回的分数
+        score, highest_score = main_game(current_player, players, highest_score)  # 获取当前分数和最高分
         if score > players.get(current_player, 0):
-            players[current_player] = score  # 更新高分
-            save_players(players)  # 保存分数
-        current_player = welcome_screen(players, selected_player=current_player)  # 返回主菜单，保持玩家不变
+            players[current_player] = score
+        save_players(players, highest_score)  # 保存玩家数据和全局最高分
+        current_player = welcome_screen(players, selected_player=current_player)
+
 
