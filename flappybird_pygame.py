@@ -176,28 +176,44 @@ def show_rank(players):
 # Input New Character
 def input_new_character(players):
     username = ""
+    warning_message = ""  # 用于显示警告信息
     while True:
         screen.fill(WHITE)
         display_text("Enter New Character Name:", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 3)
         display_text(username, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+
+        # 显示警告信息（如果有）
+        if warning_message:
+            display_text(warning_message, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 40, color=(255, 0, 0), font_size=24)
+
         display_text("Press ESC to Cancel", SCREEN_WIDTH // 2, SCREEN_HEIGHT - 50, font_size=28)
         pygame.display.flip()
 
         for event in pygame.event.get():
-            if event.type == pygame.QUIT: pygame.quit(), sys.exit()
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN and username:
-                    players[username] = 0
-                    save_players(players)
-                    return username
-                elif event.key == pygame.K_BACKSPACE: username = username[:-1]
-                elif event.key == pygame.K_ESCAPE: return None
-                elif event.unicode.isalnum(): username += event.unicode
-
+                if event.key == pygame.K_RETURN:
+                    if not username:  # 检查输入是否为空
+                        warning_message = "Username cannot be empty!"
+                    elif username in players:  # 检查用户名是否已存在
+                        warning_message = "Username already exists!"
+                    else:
+                        players[username] = 0
+                        save_players(players)
+                        return username
+                elif event.key == pygame.K_BACKSPACE:  # 处理退格键
+                    username = username[:-1]
+                    warning_message = ""  # 清除警告信息
+                elif event.key == pygame.K_ESCAPE:  # 取消输入
+                    return None
+                elif event.unicode.isalnum():  # 限制输入字符为字母和数字
+                    username += event.unicode
+                    warning_message = ""  # 清除警告信息
 
 # 游戏结束界面
-def game_over_screen(score, highest_score, bird_y, pipes, bird_x=100):
-    is_global_high = score > highest_score
+def game_over_screen(score, is_global_high, bird_y, pipes, bird_x=100):
     while True:
         screen.fill(BLUE)
         pygame.draw.circle(screen, YELLOW, (bird_x, int(bird_y)), BIRD_RADIUS)
@@ -209,25 +225,30 @@ def game_over_screen(score, highest_score, bird_y, pipes, bird_x=100):
         display_text("Game Over!", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 3, font_size=48)
         display_text(f"Your Score: {score}", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
 
-        # 显示全局最高分祝贺信息
         if is_global_high:
             display_text("Congratulations! New Global High Score!", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 3 - 50, (0, 191, 255), font_size=32)
-
         display_text("Press ENTER to return to Menu", SCREEN_WIDTH // 2, SCREEN_HEIGHT - 60, font_size=28)
+        display_text("Press R to Restart", SCREEN_WIDTH // 2, SCREEN_HEIGHT - 30, font_size=28)
 
         pygame.display.flip()
+
+        # 事件监听
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
-                return
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:  # 返回主菜单
+                    return "menu"
+                if event.key == pygame.K_r:  # 重新开始游戏
+                    return "restart"
 
 # Main Game Logic
 def main_game(username, players, highest_score):
     bird_x, bird_y = 100, SCREEN_HEIGHT // 2
     bird_velocity, score = 0, 0
     pipes = [{'x': SCREEN_WIDTH, 'top_height': random.randint(100, 400)}]
+    original_highest_score = highest_score  # 保存原始最高分
 
     while True:
         # 事件处理
@@ -253,22 +274,22 @@ def main_game(username, players, highest_score):
         # 碰撞检测
         for pipe in pipes:
             if check_collision(bird_x, bird_y, BIRD_RADIUS, pipe['x'], 0, PIPE_WIDTH, pipe['top_height']) or \
-                    check_collision(bird_x, bird_y, BIRD_RADIUS, pipe['x'], pipe['top_height'] + GAP_HEIGHT, PIPE_WIDTH,
-                                    SCREEN_HEIGHT):
-                game_over_screen(score, highest_score, bird_y, pipes, bird_x)  # 调用 Game Over 界面
-                return score, highest_score
+               check_collision(bird_x, bird_y, BIRD_RADIUS, pipe['x'], pipe['top_height'] + GAP_HEIGHT, PIPE_WIDTH, SCREEN_HEIGHT):
+                is_global_high = score > original_highest_score
+                action = game_over_screen(score, is_global_high, bird_y, pipes, bird_x)
+                return action, score, max(highest_score, score)
 
         if bird_y < 0 or bird_y > SCREEN_HEIGHT:
-            game_over_screen(score, highest_score, bird_y, pipes, bird_x)  # 调用 Game Over 界面
-            return score, highest_score
+            is_global_high = score > original_highest_score
+            action = game_over_screen(score, is_global_high, bird_y, pipes, bird_x)
+            return action, score, max(highest_score, score)
 
         # 更新分数逻辑
         for pipe in pipes:
             if pipe['x'] + PIPE_WIDTH < bird_x and not pipe.get('scored', False):
                 score += 1
                 pipe['scored'] = True
-                if score > highest_score:  # 更新全局最高分
-                    highest_score = score
+                highest_score = max(highest_score, score)
 
         # 绘制画面
         screen.fill(BLUE)
@@ -285,11 +306,19 @@ def main_game(username, players, highest_score):
 if __name__ == "__main__":
     players, highest_score = load_players()
     current_player = welcome_screen(players)
+
     while True:
-        score, highest_score = main_game(current_player, players, highest_score)  # 获取当前分数和最高分
+        # 开始游戏
+        action, score, highest_score = main_game(current_player, players, highest_score)
+
+        # 更新玩家分数
         if score > players.get(current_player, 0):
             players[current_player] = score
-        save_players(players, highest_score)  # 保存玩家数据和全局最高分
-        current_player = welcome_screen(players, selected_player=current_player)
+        save_players(players, highest_score)
 
+        # 根据动作决定下一步
+        if action == "menu":  # 返回主菜单
+            current_player = welcome_screen(players, selected_player=current_player)
+        elif action == "restart":  # 重新开始游戏
+            continue  # 直接回到主循环重新开始游戏
 
